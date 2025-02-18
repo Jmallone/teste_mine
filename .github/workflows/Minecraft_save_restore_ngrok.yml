@@ -1,0 +1,87 @@
+name: Minecraft Server with Artifact Save, Restore, and ngrok
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  run-minecraft:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Etapa 1: Baixar o mundo salvo anteriormente, se existir
+      - name: Baixar Artifact do Mundo (se existir)
+        uses: actions/download-artifact@v3
+        with:
+          name: minecraft-world
+          path: minecraft-server
+        continue-on-error: true  # Permite continuar mesmo se o artifact não existir
+
+      # Etapa 2: Baixar PaperMC
+      - name: Baixar PaperMC
+        run: |
+          mkdir minecraft-server
+          cd minecraft-server
+          curl -o paper.jar https://api.papermc.io/v2/projects/paper/versions/1.20.1/builds/100/downloads/paper-1.20.1-100.jar
+
+      # Etapa 3: Aceitar EULA
+      - name: Aceitar EULA
+        run: echo "eula=true" > minecraft-server/eula.txt
+
+      # Etapa 4: Restaurar o Mundo do Minecraft (se houver artifact)
+      - name: Restaurar o Mundo do Minecraft (se houver artifact)
+        run: |
+          cd minecraft-server
+          if [ -f minecraft-world.tar.gz ]; then
+            tar -xzf minecraft-world.tar.gz  # Descompacta o mundo, se houver
+          fi
+
+      # Etapa 5: Instalar e configurar o ngrok
+      - name: Instalar ngrok
+        run: |
+          sudo apt update
+          sudo apt install -y unzip
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update
+          sudo apt install ngrok
+          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+
+      # Etapa 6: Iniciar ngrok
+      - name: Iniciar ngrok
+        run: |
+          nohup ngrok tcp 25565 > ngrok.log &
+          sleep 5  # Espera o ngrok iniciar
+          # Obtém o endereço do túnel e exibe nos logs
+          ngrok_url=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
+          echo "Servidor Minecraft acessível em: $ngrok_url"
+
+      # Etapa 7: Mudar o nome do servidor (motd)
+      - name: Alterar Nome do Servidor (motd)
+        run: |
+          SERVER_NAME="Meu Servidor Minecraft"  # Defina o nome do servidor aqui
+          sed -i "s/^motd=.*/motd=$SERVER_NAME/" minecraft-server/server.properties
+          echo "Nome do servidor alterado para: $SERVER_NAME"
+
+      # Etapa 8: Rodar o Servidor Minecraft por 5 horas
+      - name: Rodar Servidor Minecraft por 5 horas
+        run: |
+          cd minecraft-server
+          nohup java -Xmx2G -Xms2G -jar paper.jar nogui &
+          sleep 18000  # O servidor rodando por 5 horas (18000 segundos)
+
+      # Etapa 9: Salvar Mundo do Minecraft (salvando como artifact)
+      - name: Salvar Mundo do Minecraft
+        run: |
+          cd minecraft-server
+          # Compacta o mundo e faz o upload como artifact
+          tar -czf minecraft-world.tar.gz world
+          echo "Minecraft world saved as artifact"
+
+      # Etapa 10: Upload do Mundo como Artifact
+      - name: Upload do Mundo como Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: minecraft-world
+          path: minecraft-server/minecraft-world.tar.gz
