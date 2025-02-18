@@ -1,0 +1,41 @@
+name: Minecraft Server with ngrok
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  run-minecraft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar PaperMC
+        run: |
+          mkdir minecraft-server
+          cd minecraft-server
+          curl -o paper.jar https://api.papermc.io/v2/projects/paper/versions/1.20.1/builds/100/downloads/paper-1.20.1-100.jar
+      
+      - name: Aceitar EULA
+        run: echo "eula=true" > minecraft-server/eula.txt
+      
+      - name: Instalar ngrok
+        run: |
+          sudo apt update
+          sudo apt install -y unzip
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update
+          sudo apt install ngrok
+          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+      
+      - name: Iniciar ngrok
+        run: |
+          nohup ngrok tcp 25565 > ngrok.log &
+          sleep 5
+          curl -s http://localhost:4040/api/tunnels | grep -o 'tcp://[0-9a-zA-Z:.]*'
+      
+      - name: Rodar Servidor Minecraft
+        run: |
+          cd minecraft-server
+          java -Xmx2G -Xms2G -jar paper.jar nogui
+
